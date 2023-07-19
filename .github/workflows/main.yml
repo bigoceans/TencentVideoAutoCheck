@@ -1,6 +1,9 @@
 name: TencentVideo Auto-Check
 
 on:
+  push:
+      branches:
+        - main
   schedule:
     - cron: '30 0 * * *'  # 每天凌晨0点执行，根据需要调整时间
 
