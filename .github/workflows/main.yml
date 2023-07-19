@@ -1,0 +1,36 @@
+name: aliyundrive-checkin
+on:
+  schedule:
+    - cron: '0 0-1 * * *'  # 每天凌晨0点到1点之间执行
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install requirements
+        run: |
+          pip3 install -r ./requirements.txt
+      - name: Run checkin
+        run: |
+          python3 ./main.py --token_string "${{ secrets.TOKEN }}"
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          SERVERCHAN_SENDKEY: ${{ secrets.SCKEY }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          BARK_DEVICEKEY: ${{ secrets.BARK_DEVICEKEY }}
+      - uses: gautamkrishnar/keepalive-workflow@master
+      - name: Append Success Log # 追加成功日志
+        run: |
+          echo "$(date +%Y-%m-%d\ %H:%M:%S) - 签到成功" >> run.log
+      - name: Upload log # 上传日志
+        uses: actions/upload-artifact@v2
+        with:
+          name: logs
+          path: run.log
+      - name: Push log # 更新日志
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: auto-checkin
+          branch: main
