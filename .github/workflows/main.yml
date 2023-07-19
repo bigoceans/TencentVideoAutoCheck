@@ -1,43 +1,45 @@
-name: TencentVideo Auto-Check
+name: 'Baidu Tieba Auto Sign'
 
 on:
   push:
-      branches:
-        - main
+    branches:
+      - main
   schedule:
-    - cron: '30 0 * * *'  # 每天凌晨0点执行，根据需要调整时间
+    - cron: '15 0 * * *'
+    - cron: '0 1 * * *'
 
 jobs:
-  check-in:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.x  # 指定 Python 版本，根据实际脚本要求选择
+          python-version: '3.x' # 使用适当的 Python 版本
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests  #  requests 模块
 
       - name: Run check-in
-        env:
-          LOGIN_COOKIE: ${{ secrets.LOGIN_COOKIE }}  # 设置登录 cookie 的 Secret 名称
-          AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}  # 设置认证 cookie 的 Secret 名称
         run: |
           python main.py --login_cookie "$LOGIN_COOKIE" --auth_cookie "$AUTH_COOKIE" >> run.log
+        env:
+          LOGIN_COOKIE: ${{ secrets.LOGIN_COOKIE }}
+          AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
 
-      - name: Append Success Log #追加成功日志
-        run: |
-          echo "$(date +%Y-%m-%d\ %H:%M:%S) - 签到成功" >> run.log
-
-      - name: Upload log #上传日志
+      - name: Upload log
         uses: actions/upload-artifact@v2
         with:
           name: logs
           path: run.log
 
-      - name: Push log #更新日志
+      - name: Push log
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: auto-checkin
