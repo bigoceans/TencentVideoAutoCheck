@@ -1,35 +1,40 @@
-name: aliyundrive-checkin
+name: Daily Check-in
+
 on:
   schedule:
-    - cron: '0 0-1 * * *'  # 每天凌晨0点到1点之间执行
-  workflow_dispatch:
+    - cron: '0 0 * * *'  # 每天凌晨0点执行，根据需要调整时间
 
 jobs:
-  build:
-    runs-on: windows-latest
+  check-in:
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Install requirements
-        run: |
-          pip3 install -r ./requirements.txt
-      - name: Run checkin
-        run: |
-          python3 ./main.py --token_string "${{ secrets.TOKEN }}"
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x  # 指定 Python 版本，根据实际脚本要求选择
+
+      - name: Run check-in
         env:
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          SERVERCHAN_SENDKEY: ${{ secrets.SCKEY }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          BARK_DEVICEKEY: ${{ secrets.BARK_DEVICEKEY }}
-      - uses: gautamkrishnar/keepalive-workflow@master
-      - name: Append Success Log # 追加成功日志
+          LOGIN_COOKIE: ${{ secrets.LOGIN_COOKIE }}  # 设置登录 cookie 的 Secret 名称
+          AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}  # 设置认证 cookie 的 Secret 名称
+        run: |
+          python main.py --login_cookie "$LOGIN_COOKIE" --auth_cookie "$AUTH_COOKIE" >> run.log
+
+      - name: Append Success Log #追加成功日志
         run: |
           echo "$(date +%Y-%m-%d\ %H:%M:%S) - 签到成功" >> run.log
-      - name: Upload log # 上传日志
+
+      - name: Upload log #上传日志
         uses: actions/upload-artifact@v2
         with:
           name: logs
           path: run.log
-      - name: Push log # 更新日志
+
+      - name: Push log #更新日志
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: auto-checkin
