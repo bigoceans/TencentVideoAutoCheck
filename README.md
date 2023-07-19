@@ -2,7 +2,7 @@
 
 ## 今日签到状态
 
-![Tencent Video Auto Check](https://github.com/bigoceans/TieBaSign/workflows/Baidu%20Tieba%20Auto%20Sign/badge.svg)
+[![Baidu Tieba Auto Sign](https://github.com/bigoceans/TencentVideoAutoCheck/actions/workflows/main.yml/badge.svg)](https://github.com/bigoceans/TencentVideoAutoCheck/actions/workflows/main.yml)
 
 ## 使用说明
 ### 配置流程
