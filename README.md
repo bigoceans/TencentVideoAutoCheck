@@ -5,7 +5,7 @@
 [![Baidu Tieba Auto Sign](https://github.com/bigoceans/TencentVideoAutoCheck/actions/workflows/main.yml/badge.svg)](https://github.com/bigoceans/TencentVideoAutoCheck/actions/workflows/main.yml)
 
 ## 使用说明
-### 配置流程
+### 配置流程   
 
 1. Fork 本仓库，然后点击你的仓库右上角的 Settings，找到 Secrets 这一项，添加 LOGIN_COOKIE 和 AUTH_COOKIE 两个变量。
 
