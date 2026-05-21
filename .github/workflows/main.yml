@@ -36,7 +36,7 @@ jobs:
           python main.py >> run.log
         env:
           LOGIN_COOKIE: ${{ secrets.LOGIN_COOKIE }}
-          AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
+          AUTH_REFRESH_URL: ${{ secrets.AUTH_REFRESH_URL }}
           WXPUSHER_TOKEN: ${{ secrets.WXPUSHER_TOKEN }}
           WXPUSHER_UID: ${{ secrets.WXPUSHER_UID }}
       

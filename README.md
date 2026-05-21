@@ -1,9 +1,16 @@
 # 腾讯视频签到Github Action版
 
-> **当前版本：v1.6**  
+> **当前版本：v1.7**  
 > **更新日期：2026-05-21**
 
 ## 版本更新说明
+
+### v1.7 (2026-05-21)
+- ✅ 新增 `AUTH_REFRESH_URL` 环境变量，解决 auth_refresh 401 问题
+- ✅ 移除已失效的 `AUTH_COOKIE`，改用 `AUTH_REFRESH_URL`
+- ✅ 多接口自动降级：先尝试 trpc 新接口，失败后尝试 fcgi 旧接口
+- ✅ 401 错误时给出明确的配置指引
+- ✅ 同步更新 `dailycheckin` 仓库的腾讯视频签到模块
 
 ### v1.6 (2026-05-21)
 - ✅ 重写签到流程：`auth_refresh` → `fcgi-bin/comm_cgi` 两步签到
@@ -63,8 +70,8 @@
 ### 配置流程
 
 1. **Fork 本仓库**，然后点击你的仓库右上角的 Settings，找到 Secrets 这一项，添加以下变量：
-   - `LOGIN_COOKIE` - 腾讯视频登录 Cookie
-   - `AUTH_COOKIE` - 腾讯视频认证 Cookie
+   - `LOGIN_COOKIE` - 腾讯视频登录 Cookie（必填）
+   - `AUTH_REFRESH_URL` - auth_refresh 完整 URL（**强烈推荐**，获取方法见下方）
    - `WXPUSHER_TOKEN`（可选）- WxPusher 应用 Token
    - `WXPUSHER_UID`（可选）- WxPusher 用户 UID
 
@@ -80,7 +87,7 @@
 
 ## Cookie 获取方法
 
-### login_cookie、auth_cookie 的获取
+### login_cookie、auth_cookie的获取
 
 1. 网页登录 [腾讯视频](https://v.qq.com/)
 
@@ -93,6 +100,29 @@
 5. 获取配置信息的效果图如下：
    
    ![获取配置信息](https://github.com/bigoceans/TencentVideoAutoCheck/blob/main/img/1.jpg?raw=true)
+
+### AUTH_REFRESH_URL 的获取（强烈推荐）
+
+> **不配置此变量会导致 auth_refresh 返回 401，签到失败！**
+
+1. 浏览器登录 [腾讯视频](https://v.qq.com/)
+
+2. 按 `F12` 打开开发者工具
+
+3. 切换到 `Network`（网络）标签
+
+4. 在筛选框中输入 `auth_refresh` 进行搜索
+
+5. 找到 `https://access.video.qq.com/user/auth_refresh?...` 请求
+
+6. 右键点击该请求 → `Copy` → `Copy URL`（复制完整 URL）
+
+7. 将复制的 URL 添加到 Secrets 中的 `AUTH_REFRESH_URL`
+
+**示例 URL 格式：**
+```
+https://access.video.qq.com/user/auth_refresh?vappid=11059694&vsecret=xxxxx&type=qq&g_tk=&g_vstk=xxxxx&g_actk=xxxxx&callback=jQuery...&_=xxxxx
+```
 
 ---
 
