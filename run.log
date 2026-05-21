@@ -7,3 +7,8 @@
 认证刷新失败，状态码: 401
 10秒后自动关闭
 2026-05-21 05:06:23 - 签到完成
+正在签到...
+签到响应: QZOutputJson=({"ret":-10,"msg":"path /fcgi-bin/comm_cgi/hierarchical_task_system has no match route"});
+签到失败：未知错误 (ret=-10, msg=path /fcgi-bin/comm_cgi/hierarchical_task_system has no match route)
+10秒后自动关闭
+2026-05-21 05:11:23 - 签到完成
