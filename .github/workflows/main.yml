@@ -8,12 +8,18 @@ on:
     - cron: '0 1 * * *'   # UTC 01:00 = 北京时间 09:00
   workflow_dispatch:  # 允许手动触发
 
+permissions:
+  contents: write  # 允许写入仓库内容
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # 使用 GITHUB_TOKEN 进行认证
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,3 +55,5 @@ jobs:
         with:
           commit_message: auto-checkin
           branch: main
+          commit_user_name: github-actions[bot]
+          commit_user_email: github-actions[bot]@users.noreply.github.com
