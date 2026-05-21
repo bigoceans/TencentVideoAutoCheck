@@ -107,109 +107,91 @@ def tencent_video_sign_in():
             )
         return
     
-    # 测试 Cookie 是否有效（访问用户信息接口）
+    # 测试 Cookie 是否有效
     log_message("正在测试 Cookie 有效性...")
-    test_url = "https://vip.video.qq.com/fcgi-bin/comm_cgi?name=hierarchical_task_system&cmd=2"
     test_headers = {
         'Referer': 'https://v.qq.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Cookie': login_cookie
     }
     
-    try:
-        test_rsp = requests.get(test_url, headers=test_headers, timeout=30)
-        log_message(f"测试请求状态码: {test_rsp.status_code}")
-        log_message(f"测试响应: {test_rsp.text[:200]}...")  # 只显示前200字符
-        
-        # 检查是否包含登录页面重定向（未登录）
-        if 'login' in test_rsp.text.lower() or '登录' in test_rsp.text:
-            error_msg = "Cookie 已失效，需要重新登录获取"
-            log_message(f"错误: {error_msg}")
-            
-            if wxpusher_token and wxpusher_uid:
-                send_wxpusher_message(
-                    wxpusher_token,
-                    f"腾讯视频签到失败\n\n{error_msg}\n\n请重新获取 Cookie",
-                    wxpusher_uid,
-                    "签到失败：Cookie失效"
-                )
-            return
-        
-    except Exception as e:
-        log_message(f"测试请求异常: {str(e)}")
-    
-    # 执行签到
+    # 执行签到 - 使用新的接口
     log_message("=" * 50)
     log_message("开始执行签到...")
     log_message("=" * 50)
     
-    sign_in_url = f"https://vip.video.qq.com/fcgi-bin/comm_cgi?name=hierarchical_task_system&cmd=2&_={millisecond_time}"
+    # 新的签到接口
+    sign_in_url = "https://vip.video.qq.com/rpc/trpc.new_task_system.task_system.TaskSystem/CheckIn?rpc_data=%7B%7D"
     
     try:
         log_message(f"请求 URL: {sign_in_url}")
         log_message(f"请求 Headers: Referer={test_headers['Referer']}")
         log_message(f"请求 Cookie 长度: {len(login_cookie)} 字符")
         
-        sign_rsp = requests.get(url=sign_in_url, headers=test_headers, timeout=30)
+        # 新的接口需要添加额外的 headers
+        sign_headers = {
+            'Referer': 'https://film.video.qq.com',
+            'Origin': 'https://film.video.qq.com',
+            'User-Agent': test_headers['User-Agent'],
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Cookie': login_cookie
+        }
+        
+        sign_rsp = requests.get(url=sign_in_url, headers=sign_headers, timeout=30)
         sign_rsp_text = sign_rsp.text
         
         log_message(f"响应状态码: {sign_rsp.status_code}")
         log_message(f"响应内容: {sign_rsp_text}")
         
-        # 解析响应
-        if 'QZOutputJson=' in sign_rsp_text:
-            try:
-                start_idx = sign_rsp_text.find('(') + 1
-                end_idx = sign_rsp_text.rfind(')')
-                json_str = sign_rsp_text[start_idx:end_idx]
-                rsp_dict = json.loads(json_str)
+        # 解析响应 - 新接口直接返回 JSON
+        try:
+            rsp_dict = sign_rsp.json()
+            
+            log_message(f"解析后的响应: {json.dumps(rsp_dict, ensure_ascii=False)}")
+            
+            ret = rsp_dict.get('ret')
+            checkin_score = rsp_dict.get('check_in_score', 0)
+            msg = rsp_dict.get('msg', '')
+            
+            if ret == 0:
+                result_msg = f"签到成功！获得 {checkin_score} V力值"
+                log_message(f"✅ {result_msg}")
                 
-                log_message(f"解析后的响应: {json.dumps(rsp_dict, ensure_ascii=False)}")
+                if wxpusher_token and wxpusher_uid:
+                    push_content = f"腾讯视频签到成功！\n\n获得积分：{checkin_score}\n签到时间：{time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    send_wxpusher_message(
+                        wxpusher_token,
+                        push_content,
+                        wxpusher_uid,
+                        f"签到成功 +{checkin_score}分"
+                    )
+            elif ret == -10006:
+                result_msg = "签到失败：Cookie 无效或已过期 (Account Verify Error)"
+                log_message(f"❌ {result_msg}")
                 
-                ret = rsp_dict.get('ret')
-                checkin_score = rsp_dict.get('checkin_score', 0)
-                msg = rsp_dict.get('msg', '')
+                if wxpusher_token and wxpusher_uid:
+                    send_wxpusher_message(
+                        wxpusher_token,
+                        f"腾讯视频签到失败\n\n{result_msg}\n\n请重新获取 Cookie",
+                        wxpusher_uid,
+                        "签到失败：Cookie失效"
+                    )
+            else:
+                result_msg = f"签到失败：未知错误 (ret={ret}, msg={msg})"
+                log_message(f"❌ {result_msg}")
                 
-                if ret == 0:
-                    result_msg = f"签到成功！获得 {checkin_score} V力值"
-                    log_message(f"✅ {result_msg}")
-                    
-                    if wxpusher_token and wxpusher_uid:
-                        push_content = f"腾讯视频签到成功！\n\n获得积分：{checkin_score}\n签到时间：{time.strftime('%Y-%m-%d %H:%M:%S')}"
-                        send_wxpusher_message(
-                            wxpusher_token,
-                            push_content,
-                            wxpusher_uid,
-                            f"签到成功 +{checkin_score}分"
-                        )
-                elif ret == -10006:
-                    result_msg = "签到失败：Cookie 无效或已过期 (Account Verify Error)"
-                    log_message(f"❌ {result_msg}")
-                    
-                    if wxpusher_token and wxpusher_uid:
-                        send_wxpusher_message(
-                            wxpusher_token,
-                            f"腾讯视频签到失败\n\n{result_msg}\n\n请重新获取 Cookie",
-                            wxpusher_uid,
-                            "签到失败：Cookie失效"
-                        )
-                else:
-                    result_msg = f"签到失败：未知错误 (ret={ret}, msg={msg})"
-                    log_message(f"❌ {result_msg}")
-                    
-                    if wxpusher_token and wxpusher_uid:
-                        send_wxpusher_message(
-                            wxpusher_token,
-                            f"腾讯视频签到失败\n\n{result_msg}",
-                            wxpusher_uid,
-                            "签到失败"
-                        )
-            except json.JSONDecodeError as e:
-                error_msg = f"JSON 解析失败: {str(e)}"
-                log_message(f"❌ {error_msg}")
-                log_message(f"原始响应: {sign_rsp_text}")
-        else:
-            log_message(f"⚠️ 响应格式异常，不包含 QZOutputJson: {sign_rsp_text[:500]}")
+                if wxpusher_token and wxpusher_uid:
+                    send_wxpusher_message(
+                        wxpusher_token,
+                        f"腾讯视频签到失败\n\n{result_msg}",
+                        wxpusher_uid,
+                        "签到失败"
+                    )
+        except json.JSONDecodeError as e:
+            error_msg = f"JSON 解析失败: {str(e)}"
+            log_message(f"❌ {error_msg}")
+            log_message(f"原始响应: {sign_rsp_text}")
             
     except requests.RequestException as e:
         error_msg = f"网络请求异常: {str(e)}"
