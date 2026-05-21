@@ -1,9 +1,16 @@
 # 腾讯视频签到Github Action版
 
-> **当前版本：v1.5**  
+> **当前版本：v1.6**  
 > **更新日期：2026-05-21**
 
 ## 版本更新说明
+
+### v1.6 (2026-05-21)
+- ✅ 重写签到流程：`auth_refresh` → `fcgi-bin/comm_cgi` 两步签到
+- ✅ 从 Cookie 自动提取 `vqq_vuserid`/`vqq_openid`/`vqq_access_token` 等字段
+- ✅ 先刷新 `vqq_vusession` 再签到，解决 `-110009` 图形验证问题
+- ✅ 兼容新旧两种响应格式（QZOutputJson / JSON）
+- ✅ 同步更新 `dailycheckin` 仓库的腾讯视频签到模块
 
 ### v1.5 (2026-05-21)
 - ✅ 添加 `NewRefresh` 接口刷新 session，解决图形验证问题

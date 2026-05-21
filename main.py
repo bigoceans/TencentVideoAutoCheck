@@ -4,6 +4,7 @@ import time
 import json
 import os
 import sys
+import re
 
 sys.stdout.flush()
 
@@ -48,85 +49,15 @@ def send_wxpusher_message(app_token, content, uids, summary=None):
         log_message(f"WxPusher: 推送异常 - {str(e)}")
         return None
 
-def validate_cookie(cookie, name):
-    """验证 Cookie 格式"""
-    if not cookie:
-        return False, f"{name} 为空"
-    
-    required_fields = ['pgv_pvid', 'vqq_vusession', 'vqq_access_token']
-    missing_fields = []
-    
-    for field in required_fields:
-        if field not in cookie:
-            missing_fields.append(field)
-    
-    if missing_fields:
-        return False, f"{name} 缺少必要字段: {', '.join(missing_fields)}"
-    
-    if len(cookie) < 100:
-        return False, f"{name} 长度异常（{len(cookie)} 字符），可能不完整"
-    
-    return True, f"{name} 格式正常"
+def send_wxpusher_notify(wxpusher_token, wxpusher_uid, content, summary):
+    """安全发送 WxPusher 通知"""
+    if wxpusher_token and wxpusher_uid:
+        send_wxpusher_message(wxpusher_token, content, wxpusher_uid, summary)
 
-def refresh_session(login_cookie):
-    """
-    刷新 vqq_vusession，解决 security check 问题
-    使用 NewRefresh 接口获取新的 session
-    """
-    log_message("正在刷新 session（解决图形验证问题）...")
-    
-    refresh_url = "https://pbaccess.video.qq.com/trpc.video_account_login.web_login_trpc.WebLoginTrpc/NewRefresh"
-    
-    refresh_headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Content-Type': 'text/plain;charset=utf-8',
-        'Origin': 'https://v.qq.com',
-        'Referer': 'https://v.qq.com/',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 15; 23127PN0CC Build/AQ3A.240627.003; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.6723.86 Mobile Safari/537.36 QQLiveBrowser/9.01.01.29867',
-        'Cookie': login_cookie
-    }
-    
-    # 从 login_cookie 中提取构建 refresh body 所需的参数
-    refresh_body = '{"type":"qq","si":{"q36":"","h38":"","o_data":"","s":""}}'
-    
-    try:
-        rsp = requests.post(refresh_url, headers=refresh_headers, data=refresh_body, timeout=30)
-        log_message(f"NewRefresh 状态码: {rsp.status_code}")
-        log_message(f"NewRefresh 响应: {rsp.text[:500]}")
-        
-        if rsp.status_code == 200:
-            try:
-                data = rsp.json()
-                # 尝试提取新的 vusession
-                vusession = None
-                if 'data' in data:
-                    vusession = data['data'].get('vusession')
-                elif 'vusession' in str(data):
-                    # 尝试从响应中提取
-                    import re
-                    match = re.search(r'vusession["\s:]+([^",}]+)', rsp.text)
-                    if match:
-                        vusession = match.group(1)
-                
-                if vusession:
-                    log_message(f"✅ 获取到新的 vusession: {vusession[:20]}...")
-                    # 替换 cookie 中的 vusession
-                    import re
-                    new_cookie = re.sub(r'vqq_vusession=[^;]*', f'vqq_vusession={vusession}', login_cookie)
-                    return new_cookie
-                else:
-                    log_message("⚠️ 未能提取新 vusession，使用原始 Cookie 继续")
-                    return login_cookie
-            except json.JSONDecodeError:
-                log_message("⚠️ NewRefresh 响应非 JSON，使用原始 Cookie 继续")
-                return login_cookie
-        else:
-            log_message(f"⚠️ NewRefresh 请求失败，使用原始 Cookie 继续")
-            return login_cookie
-            
-    except Exception as e:
-        log_message(f"⚠️ NewRefresh 异常: {str(e)}，使用原始 Cookie 继续")
-        return login_cookie
+def extract_cookie_field(cookie, field_name):
+    """从 cookie 字符串中提取指定字段的值"""
+    match = re.search(rf'{field_name}=([^;]*)', cookie)
+    return match.group(1) if match else None
 
 def tencent_video_sign_in():
     log_message("=" * 50)
@@ -145,147 +76,223 @@ def tencent_video_sign_in():
     log_message(f"  - WXPUSHER_TOKEN: {'已配置' if wxpusher_token else '未配置'}")
     log_message(f"  - WXPUSHER_UID: {'已配置' if wxpusher_uid else '未配置'}")
     
-    # 验证 LOGIN_COOKIE
-    is_valid, msg = validate_cookie(login_cookie, "LOGIN_COOKIE")
-    log_message(f"Cookie 验证: {msg}")
-    
-    if not is_valid:
-        error_msg = f"Cookie 验证失败: {msg}"
-        log_message(f"错误: {error_msg}")
-        
-        if wxpusher_token and wxpusher_uid:
-            send_wxpusher_message(
-                wxpusher_token,
-                f"腾讯视频签到失败\n\n{error_msg}\n\n请检查 Secrets 配置",
-                wxpusher_uid,
-                "签到失败：Cookie无效"
-            )
+    if not login_cookie:
+        log_message("❌ 错误：LOGIN_COOKIE 未配置")
+        send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+            "腾讯视频签到失败\n\nLOGIN_COOKIE 未配置", "签到失败：缺少配置")
         return
     
-    # 刷新 session
+    # ========== 第一步：auth_refresh 获取新的 vqq_vusession ==========
     log_message("-" * 50)
-    refreshed_cookie = refresh_session(login_cookie)
-    if refreshed_cookie != login_cookie:
-        log_message("✅ Cookie 已刷新，使用新 Cookie 签到")
-    else:
-        log_message("使用原始 Cookie 签到")
+    log_message("第一步：auth_refresh 刷新 session")
+    log_message("-" * 50)
     
-    # 执行签到
-    log_message("=" * 50)
-    log_message("开始执行签到...")
-    log_message("=" * 50)
+    millisecond_time = round(time.time() * 1000)
     
-    sign_in_url = "https://vip.video.qq.com/rpc/trpc.new_task_system.task_system.TaskSystem/CheckIn?rpc_data=%7B%7D"
+    # 从 login_cookie 中提取 auth_refresh 所需参数
+    vqq_vuserid = extract_cookie_field(login_cookie, 'vqq_vuserid')
+    vqq_openid = extract_cookie_field(login_cookie, 'vqq_openid')
+    vqq_access_token = extract_cookie_field(login_cookie, 'vqq_access_token')
+    vqq_vusession = extract_cookie_field(login_cookie, 'vqq_vusession')
     
-    sign_headers = {
-        'Referer': 'https://film.video.qq.com',
-        'Origin': 'https://film.video.qq.com',
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 QQLiveBrowser/8.8.10 AppType/HD WebKitCore/WKWebView iOS',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Cookie': refreshed_cookie
+    log_message(f"提取到的 Cookie 字段:")
+    log_message(f"  - vqq_vuserid: {'有' if vqq_vuserid else '缺失'}")
+    log_message(f"  - vqq_openid: {'有' if vqq_openid else '缺失'}")
+    log_message(f"  - vqq_access_token: {'有' if vqq_access_token else '缺失'}")
+    log_message(f"  - vqq_vusession: {'有' if vqq_vusession else '缺失'}")
+    
+    if not all([vqq_vuserid, vqq_openid, vqq_access_token]):
+        log_message("❌ LOGIN_COOKIE 缺少必要字段（vqq_vuserid/vqq_openid/vqq_access_token）")
+        log_message("💡 请重新获取 Cookie，确保在腾讯视频网页已登录状态下抓取")
+        send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+            "腾讯视频签到失败\n\nCookie 缺少必要字段，请重新获取",
+            "签到失败：Cookie不完整")
+        return
+    
+    # 构建 auth_refresh 请求
+    # 从 login_cookie 中提取 vappid 和 vsecret（如果有 auth_cookie 则使用）
+    vappid = extract_cookie_field(login_cookie, 'vqq_appid') or ''
+    vsecret = ''
+    g_vstk = ''
+    g_actk = ''
+    
+    # 如果有 auth_cookie，尝试从中提取参数
+    if auth_cookie:
+        log_message("检测到 AUTH_COOKIE，尝试提取认证参数...")
+        # auth_refresh URL 可能包含在 auth_cookie 的来源中
+        # 这里使用通用的 auth_refresh 接口
+        pass
+    
+    # 使用 auth_refresh 接口刷新 session
+    auth_refresh_url = (
+        f"https://access.video.qq.com/user/auth_refresh"
+        f"?vappid={vappid}"
+        f"&vsecret={vsecret}"
+        f"&type=qq"
+        f"&g_tk="
+        f"&g_vstk={g_vstk}"
+        f"&g_actk={g_actk}"
+        f"&_={millisecond_time}"
+    )
+    
+    # 构建 auth_refresh 的 cookie（只需要关键字段）
+    refresh_cookie = (
+        f"main_login=qq; "
+        f"vqq_vuserid={vqq_vuserid}; "
+        f"vqq_openid={vqq_openid}; "
+        f"vqq_access_token={vqq_access_token}; "
+        f"vqq_vusession={vqq_vusession or ''}; "
+    )
+    
+    refresh_headers = {
+        'Referer': 'https://v.qq.com',
+        'Cookie': refresh_cookie
     }
     
+    log_message(f"请求 auth_refresh...")
+    
     try:
-        log_message(f"请求 URL: {sign_in_url}")
-        log_message(f"请求 Cookie 长度: {len(refreshed_cookie)} 字符")
+        login_rsp = requests.get(url=auth_refresh_url, headers=refresh_headers, timeout=30)
+        log_message(f"auth_refresh 状态码: {login_rsp.status_code}")
         
+        login_rsp_cookie = requests.utils.dict_from_cookiejar(login_rsp.cookies)
+        log_message(f"auth_refresh 返回的 Cookie: {login_rsp_cookie}")
+        
+        if login_rsp.status_code != 200 or not login_rsp_cookie:
+            log_message(f"⚠️ auth_refresh 未返回新 Cookie，尝试直接签到...")
+            new_vusession = vqq_vusession
+        else:
+            new_vusession = login_rsp_cookie.get('vqq_vusession', vqq_vusession or '')
+            new_access_token = login_rsp_cookie.get('vqq_access_token', vqq_access_token)
+            log_message(f"✅ 获取到新的 vqq_vusession: {new_vusession[:20]}...")
+    except Exception as e:
+        log_message(f"⚠️ auth_refresh 异常: {str(e)}，尝试直接签到...")
+        new_vusession = vqq_vusession or ''
+        new_access_token = vqq_access_token
+    
+    # ========== 第二步：使用新 session 签到 ==========
+    log_message("-" * 50)
+    log_message("第二步：执行签到")
+    log_message("-" * 50)
+    
+    # 构建签到用的 cookie（auth_cookie 基础 + 新的 vusession）
+    sign_cookie = auth_cookie.rstrip(';') + f';vqq_vusession={new_vusession};'
+    
+    # 如果 auth_cookie 为空，用 login_cookie 关键字段构建
+    if not auth_cookie.strip():
+        sign_cookie = (
+            f"main_login=qq; "
+            f"vqq_appid={vappid}; "
+            f"vqq_openid={vqq_openid}; "
+            f"vqq_access_token={new_access_token}; "
+            f"vqq_vuserid={vqq_vuserid}; "
+            f"vqq_refresh_token={extract_cookie_field(login_cookie, 'vqq_refresh_token') or ''}; "
+            f"vqq_vusession={new_vusession}; "
+        )
+    
+    sign_in_url = "https://vip.video.qq.com/fcgi-bin/comm_cgi?name=hierarchical_task_system&cmd=2"
+    
+    sign_headers = {
+        'User-Agent': 'Mozilla/5.0 (Linux; U; Android 8.1.0; zh-cn; Mi Note 3 Build/OPM1.171019.019) '
+                      'AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.128 '
+                      'Mobile Safari/537.36 XiaoMi/MiuiBrowser/10.0.2',
+        'Cookie': sign_cookie
+    }
+    
+    log_message(f"签到 URL: {sign_in_url}")
+    log_message(f"签到 Cookie 长度: {len(sign_cookie)} 字符")
+    
+    try:
         sign_rsp = requests.get(url=sign_in_url, headers=sign_headers, timeout=30)
         sign_rsp_text = sign_rsp.text
         
-        log_message(f"响应状态码: {sign_rsp.status_code}")
-        log_message(f"响应内容: {sign_rsp_text}")
+        log_message(f"签到状态码: {sign_rsp.status_code}")
+        log_message(f"签到响应: {sign_rsp_text}")
         
-        # 解析响应
-        try:
-            rsp_dict = sign_rsp.json()
-            
-            log_message(f"解析后的响应: {json.dumps(rsp_dict, ensure_ascii=False)}")
-            
-            ret = rsp_dict.get('ret')
-            checkin_score = rsp_dict.get('check_in_score', 0)
-            msg = rsp_dict.get('msg', '')
-            
-            if ret == 0:
-                result_msg = f"签到成功！获得 {checkin_score} V力值"
-                log_message(f"✅ {result_msg}")
+        # 解析 QZOutputJson=({...});
+        if 'QZOutputJson=' in sign_rsp_text:
+            try:
+                start_idx = sign_rsp_text.index('(') + 1
+                end_idx = sign_rsp_text.rindex(')')
+                json_str = sign_rsp_text[start_idx:end_idx]
+                rsp_dict = json.loads(json_str)
                 
-                if wxpusher_token and wxpusher_uid:
-                    push_content = f"腾讯视频签到成功！\n\n获得积分：{checkin_score}\n签到时间：{time.strftime('%Y-%m-%d %H:%M:%S')}"
-                    send_wxpusher_message(
-                        wxpusher_token,
-                        push_content,
-                        wxpusher_uid,
-                        f"签到成功 +{checkin_score}分"
-                    )
-                    
-            elif ret == -110009:
-                # security check not pass - 图形验证
-                security_info = rsp_dict.get('security_verify', {})
-                user_msg = security_info.get('usermg', '需要图形验证')
-                result_msg = f"签到失败：安全验证未通过 - {user_msg}"
-                log_message(f"❌ {result_msg}")
-                log_message("💡 解决方案：请在手机腾讯视频APP中手动签到一次，通过图形验证后重新获取 Cookie")
+                log_message(f"解析结果: {json.dumps(rsp_dict, ensure_ascii=False)}")
                 
-                if wxpusher_token and wxpusher_uid:
-                    send_wxpusher_message(
-                        wxpusher_token,
-                        f"腾讯视频签到失败\n\n{result_msg}\n\n解决方案：\n1. 打开手机腾讯视频APP\n2. 手动签到一次（完成图形验证）\n3. 重新抓取 Cookie 并更新 Secrets",
-                        wxpusher_uid,
-                        "签到失败：需要验证"
-                    )
-                    
-            elif ret == -10006:
-                result_msg = "签到失败：Cookie 无效或已过期 (Account Verify Error)"
-                log_message(f"❌ {result_msg}")
+                ret = rsp_dict.get('ret')
+                checkin_score = rsp_dict.get('checkin_score', 0)
+                msg = rsp_dict.get('msg', '')
                 
-                if wxpusher_token and wxpusher_uid:
-                    send_wxpusher_message(
-                        wxpusher_token,
+                if ret == 0:
+                    result_msg = f"签到成功！获得 {checkin_score} V力值"
+                    log_message(f"✅ {result_msg}")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+                        f"腾讯视频签到成功！\n\n获得积分：{checkin_score}\n签到时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+                        f"签到成功 +{checkin_score}分")
+                        
+                elif ret == -10006:
+                    result_msg = "签到失败：Cookie 无效或已过期 (Account Verify Error)"
+                    log_message(f"❌ {result_msg}")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
                         f"腾讯视频签到失败\n\n{result_msg}\n\n请重新获取 Cookie",
-                        wxpusher_uid,
-                        "签到失败：Cookie失效"
-                    )
-            else:
-                result_msg = f"签到失败：未知错误 (ret={ret}, msg={msg})"
-                log_message(f"❌ {result_msg}")
-                
-                if wxpusher_token and wxpusher_uid:
-                    send_wxpusher_message(
-                        wxpusher_token,
+                        "签到失败：Cookie失效")
+                        
+                elif ret == -110009:
+                    security_info = rsp_dict.get('security_verify', {})
+                    user_msg = security_info.get('usermg', '需要图形验证')
+                    result_msg = f"签到失败：安全验证未通过 - {user_msg}"
+                    log_message(f"❌ {result_msg}")
+                    log_message("💡 解决方案：请在手机腾讯视频APP中手动签到一次，通过图形验证后重新获取 Cookie")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+                        f"腾讯视频签到失败\n\n{result_msg}\n\n解决方案：\n1. 打开手机腾讯视频APP\n2. 手动签到一次（完成图形验证）\n3. 重新抓取 Cookie 并更新 Secrets",
+                        "签到失败：需要验证")
+                else:
+                    result_msg = f"签到失败：未知错误 (ret={ret}, msg={msg})"
+                    log_message(f"❌ {result_msg}")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
                         f"腾讯视频签到失败\n\n{result_msg}",
-                        wxpusher_uid,
-                        "签到失败"
-                    )
-        except json.JSONDecodeError as e:
-            error_msg = f"JSON 解析失败: {str(e)}"
-            log_message(f"❌ {error_msg}")
-            log_message(f"原始响应: {sign_rsp_text}")
-            
+                        "签到失败")
+            except (ValueError, json.JSONDecodeError) as e:
+                log_message(f"❌ 响应解析失败: {str(e)}")
+                log_message(f"原始响应: {sign_rsp_text}")
+        else:
+            # 可能是新的接口格式，尝试直接解析 JSON
+            log_message("⚠️ 响应不是 QZOutputJson 格式，尝试直接解析 JSON...")
+            try:
+                rsp_dict = sign_rsp.json()
+                log_message(f"JSON 响应: {json.dumps(rsp_dict, ensure_ascii=False)}")
+                
+                ret = rsp_dict.get('ret')
+                checkin_score = rsp_dict.get('check_in_score', 0)
+                msg = rsp_dict.get('msg', '')
+                
+                if ret == 0:
+                    result_msg = f"签到成功！获得 {checkin_score} V力值"
+                    log_message(f"✅ {result_msg}")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+                        f"腾讯视频签到成功！\n\n获得积分：{checkin_score}\n签到时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+                        f"签到成功 +{checkin_score}分")
+                else:
+                    result_msg = f"签到失败 (ret={ret}, msg={msg})"
+                    log_message(f"❌ {result_msg}")
+                    send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+                        f"腾讯视频签到失败\n\n{result_msg}",
+                        "签到失败")
+            except:
+                log_message(f"❌ 无法解析响应: {sign_rsp_text[:500]}")
+                
     except requests.RequestException as e:
         error_msg = f"网络请求异常: {str(e)}"
         log_message(f"❌ {error_msg}")
-        
-        if wxpusher_token and wxpusher_uid:
-            send_wxpusher_message(
-                wxpusher_token,
-                f"腾讯视频签到异常\n\n{error_msg}",
-                wxpusher_uid,
-                "签到异常"
-            )
+        send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+            f"腾讯视频签到异常\n\n{error_msg}", "签到异常")
     except Exception as e:
         error_msg = f"程序异常: {str(e)}"
         log_message(f"❌ {error_msg}")
         import traceback
         log_message(f"错误堆栈: {traceback.format_exc()}")
-        
-        if wxpusher_token and wxpusher_uid:
-            send_wxpusher_message(
-                wxpusher_token,
-                f"腾讯视频签到异常\n\n{error_msg}",
-                wxpusher_uid,
-                "签到异常"
-            )
+        send_wxpusher_notify(wxpusher_token, wxpusher_uid,
+            f"腾讯视频签到异常\n\n{error_msg}", "签到异常")
     
     log_message("=" * 50)
     log_message("签到流程结束")
