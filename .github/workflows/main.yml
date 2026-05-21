@@ -6,6 +6,7 @@ on:
   schedule:
     - cron: '15 0 * * *'  # UTC 00:15 = 北京时间 08:15
     - cron: '0 1 * * *'   # UTC 01:00 = 北京时间 09:00
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build:
