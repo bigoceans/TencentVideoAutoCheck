@@ -1,48 +1,59 @@
-name: 'Baidu Tieba Auto Sign'
-
+name: 'Tencent Video Auto Check-in'
 on:
   push:
     branches:
       - main
   schedule:
-    - cron: '15 0 * * *'
-    - cron: '0 1 * * *'
+    - cron: '15 0 * * *'  # UTC 00:15 = 北京时间 08:15
+    - cron: '0 1 * * *'   # UTC 01:00 = 北京时间 09:00
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: write  # 允许写入仓库内容
+  actions: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/checkout@v4
         with:
-          python-version: '3.x' # 使用适当的 Python 版本
-
+          token: ${{ secrets.GITHUB_TOKEN }}  # 使用 GITHUB_TOKEN 进行认证
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests  #  requests 模块
-
+          pip install requests
+      
       - name: Run check-in
         run: |
-          python main.py --login_cookie "$LOGIN_COOKIE" --auth_cookie "$AUTH_COOKIE" >> run.log
+          python main.py >> run.log
         env:
           LOGIN_COOKIE: ${{ secrets.LOGIN_COOKIE }}
-          AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
-
-      - name: Append Success Log #追加成功日志
+          AUTH_REFRESH_URL: ${{ secrets.AUTH_REFRESH_URL }}
+          WXPUSHER_TOKEN: ${{ secrets.WXPUSHER_TOKEN }}
+          WXPUSHER_UID: ${{ secrets.WXPUSHER_UID }}
+      
+      - name: Append Success Log
         run: |
-          echo "$(date +%Y-%m-%d\ %H:%M:%S) - 签到成功" >> run.log
-      - name: Upload log #上传日志
-        uses: actions/upload-artifact@v2
+          echo "$(date +%Y-%m-%d\ %H:%M:%S) - 签到完成" >> run.log
+      
+      - name: Upload log
+        uses: actions/upload-artifact@v4
         with:
           name: logs
           path: run.log
-      - name: Push log #更新日志
-        uses: stefanzweifel/git-auto-commit-action@v4
+      
+      - name: Push log
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: auto-checkin
           branch: main
+          commit_user_name: github-actions[bot]
+          commit_user_email: github-actions[bot]@users.noreply.github.com
