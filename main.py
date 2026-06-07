@@ -181,7 +181,26 @@ def tencent_video_sign_in():
                  'AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/61.0.3163.128 '
                  'Mobile Safari/537.36 XiaoMi/MiuiBrowser/10.0.2')
     
-    # 尝试新的 trpc 签到接口
+    # 获取用户信息和V力值（用于展示）
+    try:
+        info_url = 'https://vip.video.qq.com/fcgi-bin/comm_cgi?name=spp_vscore_user_mashup&type=1&otype=xjson'
+        info_headers = {
+            'User-Agent': mobile_ua,
+            'Cookie': sign_cookie
+        }
+        info_rsp = requests.get(info_url, headers=info_headers, timeout=30)
+        if info_rsp.status_code == 200:
+            info_data = info_rsp.json()
+            if info_data.get('ret') == 0:
+                score_info = info_data.get('cscore_info', {})
+                vscore_total = score_info.get('vip_score_total', 0)
+                level_info = info_data.get('lscore_info', {})
+                level = level_info.get('level', 0)
+                log_message(f"用户信息: V力值总计={vscore_total}, 会员等级=V{level}")
+    except Exception as e:
+        log_message(f"⚠️ 获取用户信息失败: {e}")
+    
+    # 尝试多个签到接口
     sign_urls = [
         {
             'url': 'https://vip.video.qq.com/rpc/trpc.new_task_system.task_system.TaskSystem/CheckIn?rpc_data=%7B%7D',
@@ -192,7 +211,7 @@ def tencent_video_sign_in():
                 'Accept': 'application/json, text/plain, */*',
                 'Cookie': sign_cookie
             },
-            'name': 'trpc 新接口',
+            'name': 'trpc CheckIn',
             'parse_mode': 'json'
         },
         {
@@ -201,7 +220,7 @@ def tencent_video_sign_in():
                 'User-Agent': mobile_ua,
                 'Cookie': sign_cookie
             },
-            'name': 'fcgi 旧接口',
+            'name': 'hierarchical_task_system',
             'parse_mode': 'qzoutput'
         }
     ]
@@ -236,10 +255,20 @@ def tencent_video_sign_in():
             if rsp_dict:
                 log_message(f"  解析结果: {json.dumps(rsp_dict, ensure_ascii=False)}")
                 
+                # 获取返回码，兼容多种格式
                 ret = rsp_dict.get('ret')
+                if ret is None:
+                    ret = rsp_dict.get('code')
+                
+                # 获取积分，兼容多种格式
                 checkin_score = rsp_dict.get('check_in_score') or rsp_dict.get('checkin_score', 0)
+                if checkin_score == 0 and 'data' in rsp_dict:
+                    data = rsp_dict.get('data', {})
+                    checkin_score = data.get('check_in_score') or data.get('checkin_score', 0)
+                
                 msg = rsp_dict.get('msg', '')
                 
+                # 处理成功响应
                 if ret == 0:
                     result_msg = f"签到成功！获得 {checkin_score} V力值"
                     log_message(f"✅ {result_msg}")
@@ -248,36 +277,41 @@ def tencent_video_sign_in():
                         f"签到成功 +{checkin_score}分")
                     sign_success = True
                     break
-                    
-                elif ret == -10006:
-                    result_msg = "Cookie 无效或已过期 (Account Verify Error)"
-                    log_message(f"❌ {result_msg}")
-                    notify(wxpusher_token, wxpusher_uid,
-                        f"腾讯视频签到失败\n\n{result_msg}\n\n请重新获取 Cookie",
-                        "签到失败：Cookie失效")
-                    break
-                    
-                elif ret == -110009:
-                    security_info = rsp_dict.get('security_verify', {})
-                    user_msg = security_info.get('usermg', '需要图形验证')
-                    result_msg = f"安全验证未通过 - {user_msg}"
-                    log_message(f"❌ {result_msg}")
-                    log_message("💡 解决方案：请在手机腾讯视频APP中手动签到一次，通过图形验证后重新获取 Cookie")
-                    notify(wxpusher_token, wxpusher_uid,
-                        f"腾讯视频签到失败\n\n{result_msg}\n\n解决方案：\n1. 打开手机腾讯视频APP\n2. 手动签到一次（完成图形验证）\n3. 重新抓取 Cookie 和 AUTH_REFRESH_URL",
-                        "签到失败：需要验证")
-                    break
-                    
-                elif ret == -10 or 'no match route' in str(msg):
-                    log_message(f"  ⚠️ 接口已失效，尝试下一个...")
-                    continue
-                else:
-                    result_msg = f"未知错误 (ret={ret}, msg={msg})"
-                    log_message(f"❌ {result_msg}")
-                    notify(wxpusher_token, wxpusher_uid,
-                        f"腾讯视频签到失败\n\n{result_msg}",
-                        "签到失败")
-                    break
+                
+                # 处理错误响应
+                if ret:
+                    if ret == -10006 or str(ret) == "-10006":
+                        result_msg = "Cookie 无效或已过期 (Account Verify Error)"
+                        log_message(f"❌ {result_msg}")
+                        notify(wxpusher_token, wxpusher_uid,
+                            f"腾讯视频签到失败\n\n{result_msg}\n\n请重新获取 Cookie",
+                            "签到失败：Cookie失效")
+                        break
+                        
+                    elif ret == -110009 or str(ret) == "-110009":
+                        security_info = rsp_dict.get('security_verify', {})
+                        user_msg = security_info.get('usermg', security_info.get('userMsg', '需要图形验证'))
+                        result_msg = f"安全验证未通过 - {user_msg}"
+                        log_message(f"❌ {result_msg}")
+                        log_message("💡 解决方案：请在手机腾讯视频APP中手动签到一次，通过图形验证后重新获取 Cookie")
+                        notify(wxpusher_token, wxpusher_uid,
+                            f"腾讯视频签到失败\n\n{result_msg}\n\n解决方案：\n1. 打开手机腾讯视频APP\n2. 手动签到一次（完成图形验证）\n3. 重新抓取 Cookie 和 AUTH_REFRESH_URL",
+                            "签到失败：需要验证")
+                        break
+                        
+                    elif ret == -10 or str(ret) == "-10" or 'no match route' in str(msg):
+                        log_message(f"  ⚠️ 接口已失效，尝试下一个...")
+                        continue
+                    else:
+                        result_msg = f"未知错误 (ret={ret}, msg={msg})"
+                        log_message(f"❌ {result_msg}")
+                        # 如果不是严重错误，尝试下一个接口
+                        if str(ret) == "-10":
+                            continue
+                        notify(wxpusher_token, wxpusher_uid,
+                            f"腾讯视频签到失败\n\n{result_msg}",
+                            "签到失败")
+                        break
             else:
                 log_message(f"  ⚠️ 无法解析响应，尝试下一个接口...")
                 continue
